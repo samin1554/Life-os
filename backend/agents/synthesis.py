@@ -47,10 +47,11 @@ async def run_synthesis_agent(
         if response:
             agent_sections.append(f"--- {agent_name.upper()} ---\n{response}")
 
+    joined_sections = "\n\n".join(agent_sections)
     context_block = f"""USER MESSAGE: {user_message}
 
 AGENT OUTPUTS:
-{"\n\n".join(agent_sections)}
+{joined_sections}
 """
 
     messages = [
