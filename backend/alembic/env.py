@@ -24,9 +24,12 @@ target_metadata = Base.metadata
 
 
 def get_url():
-    """Get database URL from config, converting sync driver if needed."""
-    url = config.get_main_option("sqlalchemy.url")
-    # Alembic needs asyncpg for async mode
+    """Get database URL from environment or config, ensuring asyncpg driver."""
+    import os
+    url = os.environ.get("DATABASE_URL") or config.get_main_option("sqlalchemy.url")
+    # Railway provides postgresql:// but we need postgresql+asyncpg://
+    if url and url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
     return url
 
 

@@ -8,6 +8,14 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     openrouter_api_key: str = ""
     database_url: str = "postgresql+asyncpg://postgres:lifeos@localhost:5433/lifeos"
+
+    @property
+    def async_database_url(self) -> str:
+        """Ensure DATABASE_URL uses asyncpg driver (Railway provides postgresql://)."""
+        url = self.database_url
+        if url.startswith("postgresql://"):
+            url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return url
     redis_url: str = "redis://localhost:6379"
     chroma_host: str = "localhost"
     chroma_port: int = 8000

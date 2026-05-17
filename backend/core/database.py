@@ -17,7 +17,7 @@ def _get_engine():
         # when engine.dispose() is called between tests
         poolclass = NullPool if os.environ.get("PYTEST_CURRENT_TEST") else None
         _engine = create_async_engine(
-            settings.database_url,
+            settings.async_database_url,
             echo=settings.debug,
             future=True,
             poolclass=poolclass,
