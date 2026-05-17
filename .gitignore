@@ -22,3 +22,10 @@ node_modules/
 .DS_Store
 Thumbs.db
 .claude/worktrees/
+
+# Generated files
+backend/generated_files/
+backend/chroma_db/
+
+# Claude worktrees
+.claude/worktrees/
