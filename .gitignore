@@ -29,3 +29,10 @@ backend/chroma_db/
 
 # Claude worktrees
 .claude/worktrees/
+
+# Dev notes / summaries
+Tested_and_Fixes/
+summary progress/
+summary-*.md
+docs/
+TOOL_AGENTS_PLAN.md
