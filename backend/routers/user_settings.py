@@ -34,7 +34,7 @@ PROVIDER_BASE_URLS = {
 PROVIDER_TEST_MODELS = {
     "groq": "llama-3.1-8b-instant",
     "openai": "gpt-4o-mini",
-    "openrouter": "meta-llama/llama-3.3-70b-instruct",
+    "openrouter": "meta-llama/llama-3.3-70b-instruct:free",
     "together": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
     "fireworks": "accounts/fireworks/models/llama-v3p3-70b-instruct",
     "mistral": "mistral-small-latest",
