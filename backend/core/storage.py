@@ -63,11 +63,21 @@ class FileStorage:
         if not self.is_s3:
             return filepath
 
+        # Determine Content-Type from file extension
+        import mimetypes
+        content_type, _ = mimetypes.guess_type(filepath)
+        extra_args = {}
+        if content_type:
+            extra_args["ContentType"] = content_type
+
         def _upload():
-            self.client.upload_file(filepath, self.bucket, key)
+            self.client.upload_file(
+                filepath, self.bucket, key,
+                ExtraArgs=extra_args,
+            )
 
         await asyncio.to_thread(_upload)
-        logger.info("Uploaded %s -> s3://%s/%s", filepath, self.bucket, key)
+        logger.info("Uploaded %s -> s3://%s/%s (type=%s)", filepath, self.bucket, key, content_type)
         return key
 
     async def upload_from_bytes(self, data: bytes, key: str) -> str:
@@ -80,15 +90,21 @@ class FileStorage:
             return local_path
 
         from io import BytesIO
+        import mimetypes
+
+        content_type, _ = mimetypes.guess_type(key)
+        extra_args = {}
+        if content_type:
+            extra_args["ContentType"] = content_type
 
         def _upload():
-            self.client.upload_fileobj(BytesIO(data), self.bucket, key)
+            self.client.upload_fileobj(BytesIO(data), self.bucket, key, ExtraArgs=extra_args)
 
         await asyncio.to_thread(_upload)
-        logger.info("Uploaded bytes -> s3://%s/%s (%d bytes)", self.bucket, key, len(data))
+        logger.info("Uploaded bytes -> s3://%s/%s (%d bytes, type=%s)", self.bucket, key, len(data), content_type)
         return key
 
-    def get_download_url(self, key: str, expires: int = 3600) -> str:
+    def get_download_url(self, key: str, expires: int = 3600, filename: str = None) -> str:
         """Generate a presigned download URL (default 1hr expiry).
 
         In local mode, returns None (caller should use FileResponse).
@@ -96,9 +112,13 @@ class FileStorage:
         if not self.is_s3:
             return None
 
+        params = {"Bucket": self.bucket, "Key": key}
+        if filename:
+            params["ResponseContentDisposition"] = f'attachment; filename="{filename}"'
+
         url = self.client.generate_presigned_url(
             "get_object",
-            Params={"Bucket": self.bucket, "Key": key},
+            Params=params,
             ExpiresIn=expires,
         )
         return url
