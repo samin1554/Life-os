@@ -72,7 +72,10 @@ async def get_user_llm_client(
     key = result.scalars().first()
 
     if not key:
+        logger.warning("No API key found for user %s (checked user_api_keys table)", user_id)
         return None
+
+    logger.info("Found API key for user %s: provider=%s, base_url=%s, suffix=%s", user_id, key.provider, key.base_url, key.key_suffix)
 
     try:
         decrypted = decrypt_value(key.encrypted_key)
@@ -206,6 +209,7 @@ async def chat_completion(
 
     # Try user's own API key first
     if user_id and db:
+        logger.info("chat_completion: looking up key for user_id=%s (type=%s)", user_id, type(user_id).__name__)
         user_client_info = await get_user_llm_client(user_id, db)
         if user_client_info:
             user_client, user_model = user_client_info
@@ -216,9 +220,12 @@ async def chat_completion(
                 logger.info("Using user's own API key for chat completion (provider key)")
                 return result
             logger.warning("User's API key failed, falling back to system key")
+        else:
+            logger.warning("chat_completion: no user key found, user_id=%s", user_id)
 
     # In production, require user keys — don't fall back to system keys
     if settings.environment == "production":
+        logger.warning("Production mode: returning NO_KEY_MSG for user_id=%s", user_id)
         return NO_KEY_MSG
 
     client = get_llm_client()
