@@ -33,6 +33,7 @@ async def run_agent_with_tools(
     max_tokens: int = 1500,
     user_id=None,
     db=None,
+    nudge_message: str | None = None,
 ) -> str | tuple[str, list[dict]]:
     """ReAct loop using native function calling API.
 
@@ -87,7 +88,7 @@ async def run_agent_with_tools(
             if iteration <= 1 and not tool_results:
                 logger.warning("ReAct iteration %d — no tool call, nudging (attempt %d)", iteration, iteration + 1)
                 messages.append({"role": "assistant", "content": content})
-                nudge = (
+                nudge = nudge_message or (
                     "STOP. You are NOT using your tools. Do NOT write text describing what tools do. "
                     "You MUST actually invoke a tool function right now. "
                     "Call search_and_draft_reply if the user wants to reply to an email, "

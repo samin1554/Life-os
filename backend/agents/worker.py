@@ -1,8 +1,11 @@
 """Worker Agent — generates professional documents, spreadsheets, and visualizations."""
 import json
+import logging
 import os
 import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 from core.tools import get_tools_for_agent
 from core.tool_runner import run_agent_with_tools
@@ -13,6 +16,13 @@ import core.tools_docs  # noqa: F401 — registers doc generation tools
 import core.tools_data  # noqa: F401 — registers data analysis + chart tools
 
 WORKER_TOOLS = ["analyze_data", "generate_chart", "generate_docx", "generate_xlsx", "generate_pdf"]
+
+WORKER_NUDGE = (
+    "STOP. You are NOT using your tools. Do NOT describe a document in text. "
+    "You MUST call generate_docx, generate_xlsx, or generate_pdf RIGHT NOW. "
+    "Provide all data in the tool arguments — title, sections/sheets with real content. "
+    "DO NOT output markdown or explain what you would do. CALL THE TOOL NOW."
+)
 
 SYSTEM_PROMPT = """You are the Worker Agent for Life OS. You analyze data, create visualizations, and generate downloadable documents.
 
@@ -95,7 +105,32 @@ async def run_worker_agent(
         max_tokens=4000,
         user_id=user_id,
         db=db,
+        nudge_message=WORKER_NUDGE,
     )
+
+    # If no document was generated, retry with a stronger forced prompt
+    has_document = any(
+        tr.get("result", {}).get("format") in ("docx", "xlsx", "pdf")
+        for tr in tool_results
+    )
+    if not has_document and not tool_results:
+        logger.warning("Worker agent produced no tool calls, retrying with forced prompt")
+        forced_message = (
+            f"YOU MUST GENERATE A FILE. The user asked: {user_message}\n\n"
+            "Call generate_docx, generate_xlsx, or generate_pdf with COMPLETE data. "
+            "Do NOT respond with text. Your ONLY job is to call a tool."
+        )
+        response, tool_results = await run_agent_with_tools(
+            system_prompt=SYSTEM_PROMPT,
+            user_message=forced_message,
+            tools=tools,
+            max_iterations=4,
+            collect_results=True,
+            max_tokens=4000,
+            user_id=user_id,
+            db=db,
+            nudge_message=WORKER_NUDGE,
+        )
 
     # Extract metadata from LLM response
     metadata = _extract_metadata(response)
