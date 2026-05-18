@@ -125,6 +125,9 @@ async def _try_provider_chat(
             max_tokens=max_tokens,
             temperature=temperature,
         )
+        if not response.choices:
+            logger.warning("%s returned no choices", model)
+            return None
         return response.choices[0].message.content or ""
     except Exception as e:
         logger.warning("%s chat failed: %s", model, e)
@@ -447,25 +450,35 @@ async def extract_structured(
         user_client_info = await get_user_llm_client(user_id, db)
         if user_client_info:
             user_client, user_model = user_client_info
-            try:
-                response = await user_client.chat.completions.create(
-                    model=user_model,
-                    messages=_build_messages(system_prompt, messages),
-                    max_tokens=max_tokens,
-                    temperature=0.2,
-                    response_format={"type": "json_object"},
-                )
-                text = response.choices[0].message.content or "{}"
+
+            # Try with response_format first, fall back without it
+            for use_json_format in [True, False]:
                 try:
-                    if "```json" in text:
-                        text = text.split("```json")[1].split("```")[0].strip()
-                    elif "```" in text:
-                        text = text.split("```")[1].split("```")[0].strip()
-                    return json.loads(text)
-                except (json.JSONDecodeError, IndexError):
-                    return {"raw": text}
-            except Exception as e:
-                logger.warning("User key failed for extract_structured, falling back: %s", e)
+                    kwargs = {
+                        "model": user_model,
+                        "messages": _build_messages(system_prompt, messages),
+                        "max_tokens": max_tokens,
+                        "temperature": 0.2,
+                    }
+                    if use_json_format:
+                        kwargs["response_format"] = {"type": "json_object"}
+
+                    response = await user_client.chat.completions.create(**kwargs)
+                    text = response.choices[0].message.content or "{}"
+                    try:
+                        if "```json" in text:
+                            text = text.split("```json")[1].split("```")[0].strip()
+                        elif "```" in text:
+                            text = text.split("```")[1].split("```")[0].strip()
+                        return json.loads(text)
+                    except (json.JSONDecodeError, IndexError):
+                        return {"raw": text}
+                except Exception as e:
+                    if use_json_format and "response_format" in str(e).lower():
+                        logger.info("Provider doesn't support response_format, retrying without it")
+                        continue
+                    logger.warning("User key failed for extract_structured: %s", e)
+                    break
 
     # In production, require user keys
     if settings.environment == "production":
