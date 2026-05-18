@@ -92,9 +92,9 @@ async def download_by_id(
 
     storage = get_storage()
     if storage.is_s3:
-        # Redirect to presigned S3 URL
+        # Return presigned URL as JSON (avoids CORS issues with redirects)
         url = storage.get_download_url(file_record.file_path)
-        return RedirectResponse(url)
+        return {"download_url": url, "filename": file_record.original_name}
     else:
         # Local dev — serve file directly
         filepath = file_record.file_path
@@ -130,7 +130,7 @@ async def download_by_filename(
     storage = get_storage()
     if storage.is_s3:
         url = storage.get_download_url(file_record.file_path)
-        return RedirectResponse(url)
+        return {"download_url": url, "filename": file_record.original_name}
     else:
         filepath = file_record.file_path
         if not os.path.exists(filepath):

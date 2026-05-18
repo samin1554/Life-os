@@ -1,9 +1,9 @@
 /**
  * Authenticated file download utility.
  *
- * Uses fetch with Authorization header to download files from the API,
- * then triggers a browser download via a temporary blob URL.
- * This is needed because <a href> tags can't send auth headers.
+ * Fetches a presigned URL from the API, then opens it directly
+ * in the browser (bypasses CORS since it's a direct navigation).
+ * Falls back to blob download for local dev (non-S3 responses).
  */
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
@@ -25,13 +25,26 @@ export async function downloadFile(
 
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
+    redirect: "manual",
   });
 
-  if (!res.ok) {
+  if (!res.ok && res.status !== 0) {
     throw new Error(`Download failed: ${res.status}`);
   }
 
-  // Extract filename from Content-Disposition header if not provided
+  const contentType = res.headers.get("Content-Type") || "";
+
+  // If the response is JSON with a download_url, open it directly (S3/R2)
+  if (contentType.includes("application/json")) {
+    const data = await res.json();
+    if (data.download_url) {
+      // Open presigned URL directly — bypasses CORS
+      window.open(data.download_url, "_blank");
+      return;
+    }
+  }
+
+  // Fallback: blob download (local dev when file is served directly)
   if (!filename) {
     const disposition = res.headers.get("Content-Disposition");
     if (disposition) {
@@ -41,7 +54,6 @@ export async function downloadFile(
       }
     }
     if (!filename) {
-      // Fallback: extract from URL
       filename = downloadUrl.split("/").pop() || "download";
     }
   }
@@ -56,6 +68,5 @@ export async function downloadFile(
   a.click();
   document.body.removeChild(a);
 
-  // Clean up blob URL after short delay
   setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
 }
