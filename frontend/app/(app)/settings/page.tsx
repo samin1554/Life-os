@@ -57,6 +57,7 @@ export default function SettingsPage() {
   const { getToken } = useAuth();
   const { addToast } = useToast();
   const [memories, setMemories] = useState<Memory[]>([]);
+  const [chromaConnected, setChromaConnected] = useState(true);
   const [loading, setLoading] = useState(true);
   const [deletingAll, setDeletingAll] = useState(false);
 
@@ -107,6 +108,7 @@ export default function SettingsPage() {
       if (res.ok) {
         const json = await res.json();
         setMemories(json.memories);
+        setChromaConnected(json.connected !== false);
       }
     } catch (e) {
       console.error(e);
@@ -617,7 +619,9 @@ export default function SettingsPage() {
                   <GlowText color="#e0e0e0" intensity="low">Stored Memories</GlowText>
                 </p>
                 <CyberLabel>
-                  {memories.length} entries in semantic memory
+                  {chromaConnected
+                    ? `${memories.length} entries in semantic memory`
+                    : "ChromaDB not connected"}
                 </CyberLabel>
               </div>
             </div>
@@ -632,7 +636,26 @@ export default function SettingsPage() {
             </CyberButton>
           </div>
 
-          {memories.length === 0 ? (
+          {!chromaConnected ? (
+            <FadeIn>
+            <div className="text-center py-8 border border-dashed border-[#ff3366]/30 bg-[#ff3366]/5">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.5 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ type: "spring", stiffness: 200, damping: 20, delay: 0.1 }}
+                className="inline-block"
+              >
+                <Shield className="w-8 h-8 text-[#ff3366] mx-auto mb-2" strokeWidth={1.5} />
+              </motion.div>
+              <p className="text-xs font-mono">
+                <GlowText color="#ff3366" intensity="low">ChromaDB disconnected</GlowText>
+              </p>
+              <p className="text-[10px] font-mono text-[#6b7280] mt-1">
+                Vector memory service is unreachable
+              </p>
+            </div>
+            </FadeIn>
+          ) : memories.length === 0 ? (
             <FadeIn>
             <div className="text-center py-8 border border-dashed border-[#2a2a3a]">
               <motion.div

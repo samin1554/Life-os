@@ -37,7 +37,7 @@ async def list_memories(
         return {"memories": memories, "total": len(memories)}
     except Exception as e:
         logger.error("ChromaDB connection failed: %s", e)
-        return {"memories": [], "total": 0}
+        return {"memories": [], "total": 0, "connected": False}
 
 
 @router.delete("/{memory_id}", response_model=MemoryDeleteResponse)

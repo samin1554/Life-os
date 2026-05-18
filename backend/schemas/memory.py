@@ -14,6 +14,7 @@ class MemoryResponse(BaseModel):
 class MemoryListResponse(BaseModel):
     memories: list[MemoryResponse]
     total: int
+    connected: bool = True
 
 
 class MemoryDeleteResponse(BaseModel):
