@@ -27,7 +27,10 @@ def get_chroma_client() -> chromadb.HttpClient:
 
         # Support Railway auth proxy token
         if auth_token:
-            kwargs["headers"] = {"Authorization": f"Bearer {auth_token}"}
+            kwargs["headers"] = {
+                "Authorization": f"Bearer {auth_token}",
+                "X-Api-Key": auth_token,
+            }
 
         _chroma_client = chromadb.HttpClient(**kwargs)
 
