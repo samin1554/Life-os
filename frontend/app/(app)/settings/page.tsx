@@ -562,45 +562,57 @@ export default function SettingsPage() {
               {(() => {
                 const gmail = integrations.find((i) => i.provider === "gmail");
                 return (
-                  <div className="flex items-center gap-3 p-3 bg-[#0a0a0f] border border-[#2a2a3a] cyber-chamfer-sm">
-                    <div className="w-8 h-8 flex items-center justify-center border border-[#2a2a3a] bg-[#111118]">
-                      <Mail className="w-4 h-4 text-[#ff3366]" strokeWidth={1.5} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-mono font-semibold text-[#e0e0e0]">Gmail</p>
+                  <div>
+                    <div className="flex items-center gap-3 p-3 bg-[#0a0a0f] border border-[#2a2a3a] cyber-chamfer-sm">
+                      <div className="w-8 h-8 flex items-center justify-center border border-[#2a2a3a] bg-[#111118]">
+                        <Mail className="w-4 h-4 text-[#ff3366]" strokeWidth={1.5} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-mono font-semibold text-[#e0e0e0]">Gmail</p>
+                        {gmail ? (
+                          <p className="text-[10px] font-mono text-[#00ff88]">
+                            Connected: {gmail.account_email}
+                          </p>
+                        ) : (
+                          <p className="text-[10px] font-mono text-[#6b7280]">
+                            Not connected
+                          </p>
+                        )}
+                      </div>
                       {gmail ? (
-                        <p className="text-[10px] font-mono text-[#00ff88]">
-                          Connected: {gmail.account_email}
-                        </p>
+                        <CyberButton
+                          variant="ghost"
+                          size="sm"
+                          onClick={disconnectGmail}
+                          disabled={disconnecting}
+                        >
+                          {disconnecting ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
+                          ) : (
+                            <Unlink className="w-3.5 h-3.5 mr-1" />
+                          )}
+                          Disconnect
+                        </CyberButton>
                       ) : (
-                        <p className="text-[10px] font-mono text-[#6b7280]">
-                          Not connected
-                        </p>
+                        <div className="relative group">
+                          <CyberButton
+                            variant="default"
+                            size="sm"
+                            onClick={connectGmail}
+                          >
+                            <Link2 className="w-3.5 h-3.5 mr-1" />
+                            Connect
+                          </CyberButton>
+                          <div className="absolute bottom-full right-0 mb-2 w-56 p-2 bg-[#1a1a2e] border border-[#ff9900]/40 text-[10px] font-mono text-[#ffcc00] rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                            Google verification in progress. Currently available for test users only.
+                          </div>
+                        </div>
                       )}
                     </div>
-                    {gmail ? (
-                      <CyberButton
-                        variant="ghost"
-                        size="sm"
-                        onClick={disconnectGmail}
-                        disabled={disconnecting}
-                      >
-                        {disconnecting ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
-                        ) : (
-                          <Unlink className="w-3.5 h-3.5 mr-1" />
-                        )}
-                        Disconnect
-                      </CyberButton>
-                    ) : (
-                      <CyberButton
-                        variant="default"
-                        size="sm"
-                        onClick={connectGmail}
-                      >
-                        <Link2 className="w-3.5 h-3.5 mr-1" />
-                        Connect
-                      </CyberButton>
+                    {!gmail && (
+                      <p className="text-[10px] font-mono text-[#ff9900]/70 mt-1.5 ml-11">
+                        Google OAuth verification in progress — available for test users only
+                      </p>
                     )}
                   </div>
                 );
