@@ -18,7 +18,7 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 DEFAULT_CHAT_MODEL = "llama-3.3-70b-versatile"
 DEFAULT_EXTRACT_MODEL = "llama-3.1-8b-instant"
-OPENROUTER_FALLBACK_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
+OPENROUTER_FALLBACK_MODEL = "openrouter/free"
 
 _groq_client: Optional[AsyncOpenAI] = None
 _openrouter_client: Optional[AsyncOpenAI] = None
@@ -92,7 +92,7 @@ async def get_user_llm_client(
         "groq": "llama-3.3-70b-versatile",
         "openai": "gpt-4o-mini",
         "anthropic": "claude-sonnet-4-20250514",
-        "openrouter": "meta-llama/llama-3.3-70b-instruct:free",
+        "openrouter": "openrouter/free",
         "together": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
         "fireworks": "accounts/fireworks/models/llama-v3p3-70b-instruct",
         "mistral": "mistral-small-latest",
