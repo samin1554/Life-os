@@ -15,9 +15,14 @@ _chroma_client: Optional[chromadb.HttpClient] = None
 def get_chroma_client() -> chromadb.HttpClient:
     global _chroma_client
     if _chroma_client is None:
+        import logging
+        logger = logging.getLogger(__name__)
+        host = settings.chroma_host
+        port = settings.chroma_port
+        logger.info("Connecting to ChromaDB at %s:%s", host, port)
         _chroma_client = chromadb.HttpClient(
-            host=settings.chroma_host,
-            port=settings.chroma_port,
+            host=host,
+            port=port,
         )
     return _chroma_client
 

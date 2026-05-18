@@ -1,11 +1,13 @@
 """Memory/privacy routes — view and delete stored memories."""
-from fastapi import APIRouter, Depends
+import logging
+from fastapi import APIRouter, Depends, HTTPException
 
 from core.security import get_current_user
 from core.memory import retrieve_memories, save_memory, delete_all_memories, _get_collection
 from models import User
 from schemas.memory import MemoryResponse, MemoryListResponse, MemoryDeleteResponse
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/memory", tags=["memory"])
 
 
@@ -15,23 +17,27 @@ async def list_memories(
 ):
     """View all stored memories for the current user."""
     user_id = str(current_user.id)
-    collection = _get_collection()
+    try:
+        collection = _get_collection()
 
-    results = collection.get(
-        where={"user_id": user_id},
-        limit=100,
-    )
+        results = collection.get(
+            where={"user_id": user_id},
+            limit=100,
+        )
 
-    memories = []
-    if results["ids"]:
-        for i, memory_id in enumerate(results["ids"]):
-            memories.append(MemoryResponse(
-                id=memory_id,
-                content=results["documents"][i] if results["documents"] else None,
-                metadata=results["metadatas"][i] if results["metadatas"] else None,
-            ))
+        memories = []
+        if results["ids"]:
+            for i, memory_id in enumerate(results["ids"]):
+                memories.append(MemoryResponse(
+                    id=memory_id,
+                    content=results["documents"][i] if results["documents"] else None,
+                    metadata=results["metadatas"][i] if results["metadatas"] else None,
+                ))
 
-    return {"memories": memories, "total": len(memories)}
+        return {"memories": memories, "total": len(memories)}
+    except Exception as e:
+        logger.error("ChromaDB connection failed: %s", e)
+        return {"memories": [], "total": 0}
 
 
 @router.delete("/{memory_id}", response_model=MemoryDeleteResponse)
