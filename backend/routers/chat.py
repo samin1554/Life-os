@@ -25,6 +25,7 @@ from agents.shared import (
 )
 from agents.supervisor import classify_intent
 from agents.runner import execute_agent_run, AGENT_DISPLAY_NAMES, ALL_AGENTS
+from core.memory_extractor import schedule_memory_extraction
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,20 @@ async def chat(
 
     ctx = await get_user_context(str(current_user.id), db)
     context_block = _build_context_block(ctx)
-    system_prompt = COACH_SYSTEM_PROMPT.format(user_context=context_block)
+
+    # Retrieve relevant memories for this message
+    memory_block = ""
+    try:
+        from core.memory import retrieve_memories
+        memories = retrieve_memories(str(current_user.id), req.message, limit=5)
+        if memories:
+            memory_items = [m["content"] for m in memories if m.get("content")]
+            if memory_items:
+                memory_block = "\n\n## Remembered Context\n" + "\n".join(f"- {m}" for m in memory_items)
+    except Exception as e:
+        logger.debug("Memory retrieval failed: %s", e)
+
+    system_prompt = COACH_SYSTEM_PROMPT.format(user_context=context_block + memory_block)
 
     history = await _load_history(db, current_user.id, session_id)
     messages = history + [{"role": "user", "content": req.message}]
@@ -199,6 +213,14 @@ async def chat(
     db.add(user_msg)
     db.add(assistant_msg)
     await db.commit()
+
+    # Extract and save memories in the background (non-blocking)
+    schedule_memory_extraction(
+        user_message=req.message,
+        assistant_response=response_text,
+        user_id=str(current_user.id),
+        db=db,
+    )
 
     return ChatResponse(
         response=response_text,
