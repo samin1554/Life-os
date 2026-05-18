@@ -603,7 +603,7 @@ export default function SettingsPage() {
                             <Link2 className="w-3.5 h-3.5 mr-1" />
                             Connect
                           </CyberButton>
-                          <div className="absolute top-full right-0 mt-2 w-56 p-2 bg-[#1a1a2e] border border-[#ff9900]/40 text-[10px] font-mono text-[#ffcc00] rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-[100]">
+                          <div className="absolute top-full right-0 mt-2 w-max max-w-[220px] p-2 bg-[#1a1a2e] border border-[#ff9900]/40 text-[10px] font-mono text-[#ffcc00] rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-[100]">
                             Google verification in progress. Currently available for test users only.
                           </div>
                         </div>
