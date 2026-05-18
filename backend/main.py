@@ -95,7 +95,15 @@ async def health_check():
     if settings.environment == "production":
         try:
             db_ok = await check_db_connection()
-            return {"status": "ok" if db_ok else "degraded"}
+            chroma_ok = False
+            try:
+                from core.memory import get_chroma_client
+                get_chroma_client().heartbeat()
+                chroma_ok = True
+            except Exception:
+                pass
+            status = "ok" if (db_ok and chroma_ok) else "degraded"
+            return {"status": status, "chroma": "ok" if chroma_ok else "disconnected"}
         except Exception:
             return {"status": "degraded"}
 
@@ -116,8 +124,8 @@ async def health_check():
         result["services"]["redis"] = f"error: {str(e)}"
 
     try:
-        client = chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port)
-        client.heartbeat()
+        from core.memory import get_chroma_client
+        get_chroma_client().heartbeat()
         result["services"]["chroma"] = "ok"
     except Exception as e:
         result["services"]["chroma"] = f"error: {str(e)}"

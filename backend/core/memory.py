@@ -19,17 +19,39 @@ def get_chroma_client() -> chromadb.HttpClient:
         logger = logging.getLogger(__name__)
         host = settings.chroma_host
         port = settings.chroma_port
-        logger.info("Connecting to ChromaDB at %s:%s", host, port)
-        _chroma_client = chromadb.HttpClient(
-            host=host,
-            port=port,
-        )
+        auth_token = settings.chroma_auth_token
+
+        logger.info("Connecting to ChromaDB at %s:%s (auth=%s)", host, port, bool(auth_token))
+
+        kwargs = {"host": host, "port": port}
+
+        # Support Railway auth proxy token
+        if auth_token:
+            kwargs["headers"] = {"Authorization": f"Bearer {auth_token}"}
+
+        _chroma_client = chromadb.HttpClient(**kwargs)
+
+        # Test connectivity
+        try:
+            _chroma_client.heartbeat()
+            logger.info("ChromaDB heartbeat OK")
+        except Exception as e:
+            logger.error("ChromaDB heartbeat FAILED: %s", e)
+            _chroma_client = None
+            raise
+
     return _chroma_client
 
 
 def _get_collection():
-    client = get_chroma_client()
-    return client.get_or_create_collection(name="lifeos_memories")
+    global _chroma_client
+    try:
+        client = get_chroma_client()
+        return client.get_or_create_collection(name="lifeos_memories")
+    except Exception:
+        # Reset client so next call retries connection
+        _chroma_client = None
+        raise
 
 
 def save_memory(

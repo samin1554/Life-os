@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379"
     chroma_host: str = "localhost"
     chroma_port: int = 8000
+    chroma_auth_token: str = ""  # Auth proxy API key (if using Railway auth proxy)
     tavily_api_key: str = ""
     environment: str = "development"
     debug: bool = False
