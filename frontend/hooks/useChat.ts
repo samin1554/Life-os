@@ -55,14 +55,41 @@ export function useChat() {
     [getToken]
   );
 
+  // Load the latest session — check server first, fallback to localStorage
   useEffect(() => {
     if (hasLoaded.current) return;
     hasLoaded.current = true;
-    const saved = localStorage.getItem(SESSION_KEY);
-    if (saved) {
-      loadHistory(saved);
-    }
-  }, [loadHistory]);
+
+    const init = async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+
+        // Try to get latest session from server (cross-device persistence)
+        const res = await fetch(`${API_BASE}/chat/latest-session`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.session_id) {
+            localStorage.setItem(SESSION_KEY, data.session_id);
+            loadHistory(data.session_id);
+            return;
+          }
+        }
+      } catch {
+        // Fallback to localStorage
+      }
+
+      // Fallback: use localStorage session
+      const saved = localStorage.getItem(SESSION_KEY);
+      if (saved) {
+        loadHistory(saved);
+      }
+    };
+
+    init();
+  }, [getToken, loadHistory]);
 
   const sendMessage = useCallback(
     async (message: string) => {

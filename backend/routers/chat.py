@@ -212,6 +212,24 @@ async def chat(
     )
 
 
+@router.get("/latest-session")
+async def get_latest_session(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get the user's most recent chat session ID (for cross-device persistence)."""
+    result = await db.execute(
+        select(ChatMessage.session_id)
+        .where(ChatMessage.user_id == current_user.id)
+        .order_by(desc(ChatMessage.created_at))
+        .limit(1)
+    )
+    row = result.scalar_one_or_none()
+    if not row:
+        return {"session_id": None}
+    return {"session_id": str(row)}
+
+
 @router.get("/history", response_model=ChatHistoryResponse)
 async def get_chat_history(
     session_id: str = Query(...),
