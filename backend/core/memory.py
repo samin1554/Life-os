@@ -23,24 +23,29 @@ def get_chroma_client() -> chromadb.HttpClient:
 
         logger.info("Connecting to ChromaDB at %s:%s (auth=%s)", host, port, bool(auth_token))
 
-        kwargs = {"host": host, "port": port}
-
-        # Support Railway auth proxy token
+        # Try with auth headers first if token is set
         if auth_token:
-            kwargs["headers"] = {
-                "Authorization": f"Bearer {auth_token}",
-                "X-Api-Key": auth_token,
-            }
+            try:
+                client = chromadb.HttpClient(
+                    host=host, port=port,
+                    headers={"Authorization": f"Bearer {auth_token}"},
+                )
+                client.heartbeat()
+                _chroma_client = client
+                logger.info("ChromaDB connected via Bearer auth")
+                return _chroma_client
+            except Exception as e:
+                logger.warning("ChromaDB Bearer auth failed: %s, trying without auth...", e)
 
-        _chroma_client = chromadb.HttpClient(**kwargs)
-
-        # Test connectivity
+        # Try direct connection (no auth)
         try:
-            _chroma_client.heartbeat()
-            logger.info("ChromaDB heartbeat OK")
+            client = chromadb.HttpClient(host=host, port=port)
+            client.heartbeat()
+            _chroma_client = client
+            logger.info("ChromaDB connected (no auth)")
+            return _chroma_client
         except Exception as e:
-            logger.error("ChromaDB heartbeat FAILED: %s", e)
-            _chroma_client = None
+            logger.error("ChromaDB connection FAILED: %s (host=%s port=%s)", e, host, port)
             raise
 
     return _chroma_client
