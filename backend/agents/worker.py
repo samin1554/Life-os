@@ -132,6 +132,31 @@ async def run_worker_agent(
             nudge_message=WORKER_NUDGE,
         )
 
+    # After all retries, check if we still have no document
+    has_document = any(
+        tr.get("result", {}).get("format") in ("docx", "xlsx", "pdf")
+        for tr in tool_results
+    )
+    if not has_document:
+        logger.error(
+            "Worker agent failed to generate any document after all retries. "
+            "tool_results=%s, response_preview=%s",
+            [tr.get("tool") for tr in tool_results],
+            response[:200] if response else "(empty)",
+        )
+        return {
+            "agent": "worker",
+            "response": (
+                "I wasn't able to generate the document you requested. "
+                "This usually happens when the AI model doesn't support tool calling reliably. "
+                "**To fix this:** Go to Settings → API Keys and try a different provider. "
+                "Groq (free) and OpenAI work best for document generation. "
+                "OpenRouter free-tier models often can't call tools."
+            ),
+            "template": template_name,
+            "metadata": {},
+        }
+
     # Extract metadata from LLM response
     metadata = _extract_metadata(response)
 

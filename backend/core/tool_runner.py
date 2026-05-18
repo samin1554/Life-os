@@ -1,7 +1,8 @@
 """ReAct execution loop — agent reasons, calls tools, observes results, repeats.
 
 Uses native function calling (tools API) for reliable tool invocation,
-with text-based JSON parsing as fallback.
+with aggressive text-based parsing as fallback for models that don't support
+native tool calling (e.g., OpenRouter free tier models).
 """
 import json
 import logging
@@ -41,12 +42,15 @@ async def run_agent_with_tools(
     we execute it and feed the result back. This is more reliable than text-based
     JSON parsing because the API guarantees structured tool call output.
 
-    Falls back to text-based parsing if native function calling isn't available.
+    Falls back to aggressive text-based parsing if native function calling
+    isn't available or the model outputs tool calls as text.
 
     Args:
         collect_results: If True, returns (response_text, tool_results_list)
         max_tokens: Max tokens for LLM responses (increase for agents with complex tool args)
+        nudge_message: Custom nudge message when model fails to call tools
     """
+    tool_names = [t.name for t in tools]
     api_tools = format_tools_for_api(tools)
     messages = [{"role": "user", "content": user_message}]
     tool_results = []
@@ -75,7 +79,7 @@ async def run_agent_with_tools(
 
         # If no tool calls from native API, try text-based fallback parsing
         if not tool_calls and content:
-            parsed = _extract_tool_call(content)
+            parsed = _extract_tool_call(content, tool_names)
             if parsed:
                 tool_name, args = parsed
                 tool_calls = [{"id": f"text_{iteration}", "name": tool_name, "arguments": args}]
@@ -84,15 +88,16 @@ async def run_agent_with_tools(
         # No tool calls at all — this is the final answer
         if not tool_calls:
             # If no tools have been used yet, nudge to actually use tools (up to 2 attempts)
-            # This catches both API errors and LLM hallucinating tool usage in text
             if iteration <= 1 and not tool_results:
                 logger.warning("ReAct iteration %d — no tool call, nudging (attempt %d)", iteration, iteration + 1)
                 messages.append({"role": "assistant", "content": content})
                 nudge = nudge_message or (
                     "STOP. You are NOT using your tools. Do NOT write text describing what tools do. "
                     "You MUST actually invoke a tool function right now. "
-                    "Call search_and_draft_reply if the user wants to reply to an email, "
-                    "or call read_inbox / search_emails to find emails. DO IT NOW."
+                    f"Available tools: {tool_names}. "
+                    "Respond ONLY with a JSON tool call like: "
+                    '{"tool": "' + tool_names[0] + '", "args": {...}} '
+                    "DO IT NOW."
                 )
                 messages.append({"role": "user", "content": nudge})
                 continue
@@ -113,8 +118,6 @@ async def run_agent_with_tools(
             return content
 
         # Process tool calls (usually just one)
-        # Add assistant message with tool_calls to conversation
-        # Build manually to avoid unsupported fields like 'refusal' that break some providers
         assistant_msg = {"role": "assistant", "content": content or ""}
         if tool_calls:
             assistant_msg["tool_calls"] = [
@@ -137,7 +140,7 @@ async def run_agent_with_tools(
 
             tool = next((t for t in tools if t.name == tool_name), None)
             if tool is None:
-                error_msg = f"Unknown tool '{tool_name}'. Available: {[t.name for t in tools]}"
+                error_msg = f"Unknown tool '{tool_name}'. Available: {tool_names}"
                 logger.warning("ReAct: %s", error_msg)
                 messages.append({
                     "role": "tool",
@@ -172,29 +175,76 @@ async def run_agent_with_tools(
     return last_text_response or content
 
 
-def _extract_tool_call(text: str):
-    """Extract a tool call JSON from LLM response text (fallback for non-native tool calling)."""
-    # Try ```json code blocks first (most common LLM behavior)
+def _extract_tool_call(text: str, available_tools: list[str] | None = None):
+    """Extract a tool call from LLM response text.
+
+    Handles ALL common formats models use when they don't use native tool calling:
+    1. JSON code blocks: ```json {"tool": ..., "args": ...} ```
+    2. Inline JSON: {"tool": ..., "args": ...}
+    3. XML-style: <tool_call>tool_name\n<arg>value</arg></tool_call>
+    4. Function-call syntax: tool_name(arg1="val1", arg2="val2")
+    5. Embedded JSON with nested braces
+    """
+    if not available_tools:
+        available_tools = []
+
+    # === Strategy 1: JSON code blocks ===
     for match in re.finditer(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL):
         try:
             parsed = json.loads(match.group(1).strip())
             if "tool" in parsed and "args" in parsed:
                 return parsed["tool"], parsed["args"]
+            # Some models use "name" + "arguments" format
+            if "name" in parsed and "arguments" in parsed:
+                return parsed["name"], parsed["arguments"]
         except json.JSONDecodeError:
             continue
 
-    # Try each line
+    # === Strategy 2: Line-by-line JSON ===
     for line in text.strip().split("\n"):
         line = line.strip()
-        if line.startswith("{") and '"tool"' in line:
+        if line.startswith("{") and ('"tool"' in line or '"name"' in line):
             try:
                 parsed = json.loads(line)
                 if "tool" in parsed and "args" in parsed:
                     return parsed["tool"], parsed["args"]
+                if "name" in parsed and "arguments" in parsed:
+                    return parsed["name"], parsed["arguments"]
             except json.JSONDecodeError:
                 continue
 
-    # Try finding a JSON object with "tool" key embedded in prose
+    # === Strategy 3: XML-style tool calls ===
+    # Handles: <tool_call>tool_name\n<arg_key>key</arg_key>\n<arg_value>value</arg_value></tool_call>
+    # Also: <tool_call>\ntool_name(args)\n</tool_call>
+    xml_match = re.search(r'<tool_call>\s*(.*?)\s*</tool_call>', text, re.DOTALL)
+    if xml_match:
+        xml_content = xml_match.group(1).strip()
+
+        # Try to find tool name as first word/line
+        lines = [l.strip() for l in xml_content.split("\n") if l.strip()]
+        if lines:
+            # Check if first line is a tool name
+            potential_tool = lines[0].split("(")[0].strip()
+            if potential_tool in available_tools:
+                # Parse XML-style args: <arg_key>key</arg_key>\n<arg_value>value</arg_value>
+                args = {}
+                arg_keys = re.findall(r'<arg_key>(.*?)</arg_key>', xml_content)
+                arg_values = re.findall(r'<arg_value>(.*?)</arg_value>', xml_content, re.DOTALL)
+
+                if arg_keys and arg_values:
+                    # Paired key-value format
+                    for k, v in zip(arg_keys, arg_values):
+                        args[k.strip()] = v.strip()
+                else:
+                    # Try key=value or key: value in remaining lines
+                    for line in lines[1:]:
+                        kv = re.match(r'(\w+)\s*[=:]\s*(.+)', line)
+                        if kv:
+                            args[kv.group(1)] = kv.group(2).strip().strip('"\'')
+
+                return potential_tool, args
+
+    # === Strategy 4: Embedded JSON with nested braces ===
     for match in re.finditer(r'\{[^{}]*"tool"\s*:\s*"[^"]+"\s*,\s*"args"\s*:\s*\{', text):
         start = match.start()
         depth = 0
@@ -211,68 +261,117 @@ def _extract_tool_call(text: str):
                     except json.JSONDecodeError:
                         break
 
-    # Try entire response as JSON
+    # === Strategy 5: Entire response as JSON ===
     try:
         parsed = json.loads(text.strip())
         if "tool" in parsed and "args" in parsed:
             return parsed["tool"], parsed["args"]
+        if "name" in parsed and "arguments" in parsed:
+            return parsed["name"], parsed["arguments"]
     except json.JSONDecodeError:
         pass
 
-    # Try Python function-call syntax: tool_name("arg1", "arg2") or tool_name(key="val")
-    # This handles LLMs that write tool calls as text instead of using the API
-    # Order matters: prefer combined tools (search_and_draft_reply) over individual ones
-    func_match = re.search(
-        r'(search_and_draft_reply|draft_reply|read_inbox|search_emails|get_thread)\s*\(',
-        text
-    )
-    if func_match:
-        tool_name = func_match.group(1)
-        # Find the full call including parentheses
-        start = func_match.end() - 1  # include the opening paren
-        depth = 0
-        end = start
-        for i in range(start, len(text)):
-            if text[i] == '(':
-                depth += 1
-            elif text[i] == ')':
-                depth -= 1
-                if depth == 0:
-                    end = i + 1
-                    break
-        args_text = text[start + 1:end - 1].strip()
+    # === Strategy 6: Generic function-call syntax for ANY registered tool ===
+    # Matches: tool_name(key="value", key2="value2") or tool_name("positional")
+    if available_tools:
+        # Sort by length descending so longer names match first (e.g., search_and_draft_reply before search_emails)
+        sorted_tools = sorted(available_tools, key=len, reverse=True)
+        pattern = r'(' + '|'.join(re.escape(t) for t in sorted_tools) + r')\s*\('
+        func_match = re.search(pattern, text)
 
-        # Parse arguments — try keyword args first, then positional
-        args = {}
-        # Try keyword: key="value", key="value"
-        kw_matches = re.findall(r'(\w+)\s*=\s*"((?:[^"\\]|\\.)*)"|(\w+)\s*=\s*\'((?:[^\'\\]|\\.)*)\'', args_text)
-        if kw_matches:
-            for m in kw_matches:
-                if m[0]:
-                    args[m[0]] = m[1].replace('\\n', '\n').replace('\\"', '"')
-                elif m[2]:
-                    args[m[2]] = m[3].replace('\\n', '\n').replace("\\'", "'")
-        else:
-            # Positional args — extract quoted strings
-            positional = re.findall(r'"((?:[^"\\]|\\.)*)"|\'((?:[^\'\\]|\\.)*)\'', args_text)
-            positional_values = [p[0] or p[1] for p in positional]
-            positional_values = [v.replace('\\n', '\n').replace('\\"', '"') for v in positional_values]
+        if func_match:
+            tool_name = func_match.group(1)
+            start = func_match.end() - 1  # opening paren
+            depth = 0
+            end = start
+            for i in range(start, min(start + 2000, len(text))):
+                if text[i] == '(':
+                    depth += 1
+                elif text[i] == ')':
+                    depth -= 1
+                    if depth == 0:
+                        end = i + 1
+                        break
+            args_text = text[start + 1:end - 1].strip()
 
-            # Map positional args to tool parameter names
-            param_map = {
-                "search_and_draft_reply": ["search_query", "body"],
-                "draft_reply": ["email_id", "body"],
-                "search_emails": ["query"],
-                "read_inbox": ["filter"],
-                "get_thread": ["thread_id"],
-            }
-            param_names = param_map.get(tool_name, [])
-            for i, val in enumerate(positional_values):
-                if i < len(param_names):
-                    args[param_names[i]] = val
+            args = _parse_function_args(args_text)
+            if args is not None:
+                logger.info("Parsed function-call syntax: %s(%s)", tool_name, list(args.keys()) if args else "empty")
+                return tool_name, args
 
-        if args or not args_text:
-            logger.info("Parsed Python function-call syntax: %s(%s)", tool_name, list(args.keys()))
-            return tool_name, args
+    # === Strategy 7: Look for tool names mentioned with structured args nearby ===
+    if available_tools:
+        for tool_name in available_tools:
+            if tool_name in text:
+                # Look for JSON-like args after the tool name mention
+                after_tool = text[text.index(tool_name) + len(tool_name):]
+                json_match = re.search(r'\{[^{}]+\}', after_tool[:500])
+                if json_match:
+                    try:
+                        args = json.loads(json_match.group(0))
+                        if isinstance(args, dict) and args:
+                            logger.info("Parsed tool name + nearby JSON: %s", tool_name)
+                            return tool_name, args
+                    except json.JSONDecodeError:
+                        pass
 
     return None
+
+
+def _parse_function_args(args_text: str) -> dict | None:
+    """Parse function arguments from text like: key="value", key2="value2" or "positional"."""
+    if not args_text:
+        return {}
+
+    args = {}
+
+    # Try as JSON first (some models write tool_name({"key": "val"}))
+    args_text_stripped = args_text.strip()
+    if args_text_stripped.startswith("{"):
+        try:
+            return json.loads(args_text_stripped)
+        except json.JSONDecodeError:
+            pass
+
+    # Try keyword arguments: key="value" or key='value'
+    kw_matches = re.findall(
+        r'(\w+)\s*=\s*"((?:[^"\\]|\\.)*)"|(\w+)\s*=\s*\'((?:[^\'\\]|\\.)*)\'',
+        args_text
+    )
+    if kw_matches:
+        for m in kw_matches:
+            if m[0]:
+                args[m[0]] = m[1].replace('\\n', '\n').replace('\\"', '"')
+            elif m[2]:
+                args[m[2]] = m[3].replace('\\n', '\n').replace("\\'", "'")
+        return args
+
+    # Try keyword with unquoted values: key=value
+    kw_unquoted = re.findall(r'(\w+)\s*=\s*([^,\)]+)', args_text)
+    if kw_unquoted:
+        for k, v in kw_unquoted:
+            v = v.strip().strip('"\'')
+            # Try to parse numbers/bools
+            if v.lower() == 'true':
+                args[k] = True
+            elif v.lower() == 'false':
+                args[k] = False
+            elif re.match(r'^-?\d+$', v):
+                args[k] = int(v)
+            elif re.match(r'^-?\d+\.\d+$', v):
+                args[k] = float(v)
+            else:
+                args[k] = v
+        if args:
+            return args
+
+    # Positional quoted strings
+    positional = re.findall(r'"((?:[^"\\]|\\.)*)"|\'((?:[^\'\\]|\\.)*)\'', args_text)
+    if positional:
+        values = [p[0] or p[1] for p in positional]
+        # Return as a generic args dict with indexed keys
+        if len(values) == 1:
+            return {"query": values[0]}  # Most common single-arg case
+        return {f"arg_{i}": v for i, v in enumerate(values)}
+
+    return {}

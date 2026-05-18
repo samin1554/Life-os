@@ -1,8 +1,17 @@
 """Email Agent — reads Gmail inbox, searches emails, and drafts replies."""
+import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.tool_runner import run_agent_with_tools
 from core.tools_email import get_email_tools
+
+logger = logging.getLogger(__name__)
+
+EMAIL_NUDGE = (
+    "STOP. You are NOT using your tools. You have REAL Gmail access. "
+    "You MUST call read_inbox, search_emails, or search_and_draft_reply RIGHT NOW. "
+    "Do NOT say you can't access email — you CAN. CALL A TOOL NOW."
+)
 
 
 SYSTEM_PROMPT = """You are the Email Agent for Life OS. You have REAL access to the user's Gmail account through your tools.
@@ -61,6 +70,7 @@ async def run_email_agent(
         user_id=user_id,
         db=db,
         collect_results=True,
+        nudge_message=EMAIL_NUDGE,
     )
 
     # Extract draft metadata from tool results for chat UI

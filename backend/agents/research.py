@@ -1,10 +1,19 @@
 """Research Agent — searches the web and compiles structured findings."""
+import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.tools import get_tools_for_agent
 from core.tool_runner import run_agent_with_tools
 
+logger = logging.getLogger(__name__)
+
 RESEARCH_TOOLS = ["web_search", "search_multiple", "scrape_page", "extract_data_points"]
+
+RESEARCH_NUDGE = (
+    "STOP. You are NOT using your tools. Do NOT write a research report from memory. "
+    "You MUST call web_search or search_multiple RIGHT NOW to find real, current information. "
+    "DO NOT make up facts. CALL A SEARCH TOOL NOW."
+)
 
 SYSTEM_PROMPT = """You are the Research Agent for Life OS.
 
@@ -69,5 +78,6 @@ async def run_research_agent(
         max_iterations=5,
         user_id=user_id,
         db=db,
+        nudge_message=RESEARCH_NUDGE,
     )
     return {"agent": "research", "response": response}
